@@ -22,6 +22,7 @@ library(ggplot2)
 library(dplyr)
 library(sf)
 library(tidyr)
+knitr::opts_chunk$set(warning = FALSE)
 ```
 
 # Lab part 1: Oregon bee atlas data exploration 
@@ -138,48 +139,72 @@ additional attributes when you converted the dataframe to a spatial object.
 4. Write a figure caption for your map explaining any interesting trends you see. 
 5. Export you cropped layer to a .shp so you can use it again for your final project.
 6. Push this lab to your github repo (just the .Rmd, don't push the data!)
+```{r}
+#load in the landcover data as a Raster
+landcover_OR <- rast("NLCD_2016_Land_Cover_OR/NLCD_2016_Land_Cover_OR.img")
 
-```{r plot-creative, fig.cap="Map of Vosnesenskii Locations in Oregon with Associated Ecoregions shows that vosnesenskii is gathered primarily in the Klamath Mountain, Willamette Valley and Cascades regions"}
-library('viridis')
+#Aggregate the resolution so it is easier to load
+landcover_OR <-aggregate(landcover_OR, fact = 12, fun = "median")
+#check the resolution
+res(landcover_OR)
+
+landcover_OR <- classify(landcover_OR, rcl = matrix(c(-Inf, 42, NA,
+43, 43, 43, 44, 70, NA,
+71, 71, 71, 72, Inf, NA),
+ncol=3, byrow=TRUE))
+
+# reproject so the CRS is the same as the other data
+landcover_OR <- project(landcover_OR, crs("EPSG:4326"))
+
+#convert to a df for plotting 
+landcover_OR_df <- as.data.frame(landcover_OR, na.rm = TRUE, xy = TRUE)
+
+landcover_OR_df <-landcover_OR_df %>%
+  mutate(LandType = case_when(
+    Layer_1 == 43.0 ~ "Mixed Forest",
+    Layer_1 == 71.0 ~ "Grassland"
+  ))
+
+landcover_OR_df <- landcover_OR_df %>% 
+  filter(!is.na(LandType))
+
+# landcover_polygon <- as.polygons(landcover_OR)
+# 
+# # Write the polygons to a shapefile
+# writeVector(landcover_polygon, "landcover_OR_shapefile.shp")
 
 
-or_eco <- read_sf("ecoregion_6805005916021189908/ecoregion.shp")
+```
+
+```{r plot-creative, fig.cap="Map of vosnesenskii Locations in Oregon with Associated Land Cover Type shows that vosnesenskii is gathered primarily in Mixed Forest regions."}
 
 
-vos_plus <- oba %>% 
+vosnesenskii_att <- oba %>% 
   subset(Species == 'vosnesenskii') %>%
   mutate(DecLong = Dec..Long., DecLat = Dec..Lat.) %>% 
   select(DecLong, DecLat, MonthAb) %>% 
-  drop_na(DecLong, DecLat)
+  drop_na(DecLong, DecLat, MonthAb)
 
-vosnesenskii_plus_sp <- st_as_sf(vos_plus,
+
+vosnesenskii_att <- vosnesenskii_att %>%
+  mutate(Month = factor(MonthAb, levels = 1:12, labels = c("January", "February", "March", "April", 
+                                        "May", "June", "July", "August", 
+                                        "September", "October", "November", "December")))
+
+
+vosnesenskii_att_sp <- st_as_sf(vosnesenskii_att,
                                    coords = c("DecLong","DecLat"),
                                    crs = crs("EPSG:4326"))
 
-ggplot() + 
-   
-  # geom_polygon(data = or, aes(x = lon, y = lat, group = group), fill = NA, color = "red")+
-  geom_sf(data = or_eco, aes(fill = LEV3_NAME), size = 0.5, color = "blue", alpha=0.9) +
-  scale_fill_brewer(palette = "Set3", name = "Ecoregion")+
-  geom_sf(data = vosnesenskii_plus_sp, aes(color = MonthAb)) +
-  ggtitle("Map of vosnesenskii Locations In Oregon with Associated EcoRegions")+
-  scale_color_viridis(option = "D", name = "Month Collected") +
-  annotation_scale(location = "bl", width_hint = 0.1) +  # Scale bar at bottom-left
-  theme_minimal() +
-  theme(
-    legend.position = c(1.2, 0.5),    # Move the legend further to the right (outside the plot area)
-    legend.title = element_text(size = 8),    # Resize the legend titles
-    legend.text = element_text(size = 6),      # Resize the legend text (labels)
-    legend.key.size = unit(0.4, "cm"),    # Resize the size of the legend keys
-    legend.key.height = unit(0.3, "cm"),   # Adjust the height of the legend keys (for better fit)
-    legend.key.width = unit(0.3, "cm"),    # Adjust the width of the legend keys (for better fit)
-    legend.spacing.x = unit(0.3, "cm"),   # Adjust the horizontal spacing between legends
-    legend.margin = margin(0, 10, 0, 0)   # Increase the margin to push legend further right
-  )
-
-
-
-
+ggplot() +
+  # Add the raster layer
+  geom_raster(data = landcover_OR_df, aes(x = x, y = y, fill = LandType))+
+  geom_polygon(data = or, aes(x = lon, y = lat, group = group), fill = NA, color = "black") +
+  geom_sf(data = vosnesenskii_att_sp, size=1, aes(color = Month))+
+  scale_color_brewer(palette = "Set3", name = "Month") +
+  annotation_scale(location = "bl", width_hint = 0.1)+
+  ggtitle("Vosnesenskii Locations In Oregon State")
+  
 
 ```
 
@@ -189,11 +214,66 @@ We are looking forward to seeing the maps you create!
 # Lab part 4: Spatial summary statistics
  For your final projects, you will likely need to come up with summary statistics that describes the areas around where bees are captured. 
 a. Using the distribution of your chosen bee and the spatial layer you imported in 2.6, extract a meaningful summary statistics from your spatial layer within a buffer of 500, 750 1000 km.
-b. Create a plot that illustrates this summary data (box plot, barplot, scatter plot, historgram). 
+b. Create a plot that illustrates this summary data (box plot, barplot, scatter plot, histogram). 
 c. Create a map of your cropped spatial data.
 
 ```{r buffers}
+# Assuming vosnesenskii_att_sp_projected is the projected bee data (e.g., UTM)
+vosnesenskii_att_repr <- st_transform(vosnesenskii_att_sp, crs = 32610)
+
+buffer_500 <- st_buffer(vosnesenskii_att_repr, dist = 500) # meters
+buffer_750 <- st_buffer(vosnesenskii_att_repr, dist = 750)
+buffer_1000 <- st_buffer(vosnesenskii_att_repr, dist = 1000)
 
 
+landcover_500 <- na.omit(terra::extract(landcover_OR, vect(buffer_500)))
+landcover_750 <- na.omit(terra::extract(landcover_OR, vect(buffer_750)))
+landcover_1000 <- na.omit(terra::extract(landcover_OR, vect(buffer_1000)))
 
+# Summarize land cover data (counts and proportions) excluding NA
+summarize_landcover <- function(extracted_data) {
+  data_frame <- as.data.frame(extracted_data) %>%
+    filter(!is.na(Layer_1)) # Exclude NA values
+  
+  summary <- data_frame %>%
+    group_by(Layer_1) %>%
+    summarize(Count = n()) %>%
+    mutate(Proportion = Count / sum(Count))
+  
+  return(summary)
+}
+
+summary_500 <- summarize_landcover(landcover_500)
+summary_750 <- summarize_landcover(landcover_750)
+summary_1000 <- summarize_landcover(landcover_1000)
+
+summary_500$Buffer <- "500 km"
+summary_750$Buffer <- "750 km"
+summary_1000$Buffer <- "1000 km"
+
+all_summaries <- bind_rows(summary_500, summary_750, summary_1000)
+
+all_summaries <- all_summaries %>%
+  mutate(LandType = case_when(
+    Layer_1 == 43.00000 ~ "Mixed Forest",
+    Layer_1 == 71.00000 ~ "Grassland"
+  )) %>%
+  filter(!is.na(LandType))  # Exclude any rows where LandType is NA
+
+
+ggplot(all_summaries, aes(x = Buffer, y = Proportion, fill = LandType)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Land Cover Proportions Around Vosnesenskii Locations",
+       x = "Buffer Size",
+       y = "Proportion") +
+  scale_fill_manual(values = c("forestgreen", "gold")) +
+  theme_minimal()
+
+
+```
+```{r map of cropped spatial data}
+ggplot() +
+  # Add the raster layer
+  geom_raster(data = landcover_OR_df, aes(x = x, y = y, fill = LandType))+
+  ggtitle("Oregon Land Cover Type Spatial Data")
 ```
