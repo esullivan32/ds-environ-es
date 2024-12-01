@@ -36,7 +36,7 @@ First we will read in the data. The matrix we are reading in has no row or colum
 sp_occ <- read.table(file="data/egypt_data.txt", header = FALSE)
 str(sp_occ)
 sp_mass <- read.table(file="data/egypt_mass.txt", header=FALSE)
-str(sp_mass)
+# str(sp_mass)
 ```
 ![Figure 2](figures/figure2.jpg)
 
@@ -134,6 +134,15 @@ Use the function 'empty' from the bipartite package to empty the matrix of rows 
 HINT: You will need to zero out the rows where a species in not present in that time period and the columns. The function 'sweep' may be useful again.
 
 ```{r t1-time-webs}
+time_period_2 <- sp_occ[, 2]
+
+# Zero out rows and columns for species that are not present in the second time period
+# Multiply each row by the corresponding time period data (1 = present, 0 = extinct)
+square_mat_time2 <- sweep(square_mat, 1, time_period_2, FUN = "*")  # Zero out rows
+square_mat_time2 <- sweep(square_mat_time2, 2, time_period_2, FUN = "*")  # Zero out columns
+
+sum(rowSums(square_mat_time2 > 0) > 0)
+
 
 ```
 
@@ -142,7 +151,15 @@ b. Now create a network for all of the time points by creating a list where each
 HINT: If choosing the for loop route, remember to create an empty list of a specific length use the function 'vector'. To access a specific element of a list, use [[]], for example cool_list[[1]] accesses the first element of the list.
 
 ```{r all-time-webs}
+network_list <- vector("list", ncol(sp_occ))
 
+for (i in 1:ncol(sp_occ)){
+  mat <- sweep(square_mat, 1, sp_occ[,i], FUN = "*")  # Zero out rows
+  mat <- sweep(mat, 2, sp_occ[,i], FUN = "*")
+  network_list[[i]] <- mat
+}
+
+print(head(network_list[[5]], 5)[, 1:5])
 ```
 
 # Lab part 3: Visualize the networks
@@ -150,26 +167,62 @@ a. Convert the adjacency matrices to igraph class objects using the function 'gr
 
 ```{r graphs}
 
+igraph_list <- vector("list", length(network_list))
+
+
+for (i in seq_along(network_list)) {
+  igraph_list[[i]] <- graph_from_adjacency_matrix(
+    network_list[[i]], 
+    mode = "directed", 
+    diag = FALSE, 
+    weighted = TRUE  
+  )
+}
+
 ```
 
 b. Plot three networks of your choice, using different colors for the predators and prey.
 
 ```{r plot-g1}
 ## assign groups as carnivore or herbivore
-
-
-## convert to a network 3d object
-
 ## plot the network
 
+plot_network <- function(graph, carnivores) {
+  
+  # Assign groups to nodes
+  V(graph)$group <- ifelse(carnivores == 1, "Carnivore", "Herbivore")
+  
+  node_colors <- ifelse(V(graph)$group == "Carnivore", "red", "orange")
+  
+  coords <- layout_with_fr(graph) * 5  # multiply by 5 to increase spacing
+  
+  # Plot the graph with igraph
+  plot(
+    graph,
+    layout = coords,             
+    vertex.color = node_colors,  # Node color
+    vertex.size = 5,            # Node size
+    vertex.label.cex = 0.6,      # Font size for labels
+    vertex.label.color = "black",# Label color
+    edge.arrow.size = 0.3,       # Arrow size for directed edges
+    main = "Network Plot"
+  )
+}
+plot_network(igraph_list[[1]], carnivores)
 
 ```
 
 ```{r plot-g2}
 
+#
+plot_network(igraph_list[[2]], carnivores)
 ```
 
 ```{r plot-g3}
-
+## Time period 3
+plot_network(igraph_list[[3]], carnivores)
 ```
+
+
+
 
